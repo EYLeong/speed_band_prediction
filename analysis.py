@@ -3,7 +3,7 @@ import torch.nn as nn
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString
-import contextily as ctx
+# import contextily as ctx
 import matplotlib.pyplot as plt
 
 def rmse_per_link(predicted, actual):
@@ -15,14 +15,17 @@ def rmse_per_link(predicted, actual):
         list (3-dimensions of samples, roads, output timesteps) actual: The actual speedbands
     -----------------------------
     :returns:
-        list: rmse for each road
+        list (2-dimensions of roads, output timesteps): rmse for each road across the different output timesteps
     '''
     rmses = []
     for i in range(predicted.shape[1]):
-        linkPreds = predicted[:,i,:]
-        linkActs = actual[:,i,:]
-        rmse = nn.MSELoss()(linkPreds, linkActs).sqrt()
-        rmses.append(rmse.item())
+        rmses_timesteps = []
+        for j in range(predicted.shape[2]):
+            linkPreds = predicted[:,i,j]
+            linkActs = actual[:,i,j]
+            rmse = nn.MSELoss()(linkPreds, linkActs).sqrt()
+            rmses_timesteps.append(rmse.item())
+        rmses.append(rmses_timesteps)
     return rmses
 
 def loc_to_linestring(loc):
@@ -63,7 +66,7 @@ def plot_geo_performance(metadata, rmses):
     ctx.add_basemap(ax)
     plt.show()
     
-def plot_pred_actual(predicted, actual, idx, ts):
+def plot_pred_actual(predicted, actual, idx, ts, timestamps, samples):
     '''
     Generates a plot of the predicted vs actual speedbands across all test samples for a specific road
     -----------------------------
@@ -72,17 +75,21 @@ def plot_pred_actual(predicted, actual, idx, ts):
         list (3-dimensions of samples, roads, output timesteps) actual: The actual speedbands
         int idx: The index of the road that should be plotted
         int ts: The index of the timestep that should be plotted (0 is 5 min, 1 in 10 min, 2 is 15 min, etc)
+        list (2-dimensions of samples, output timesteps) timetsamps: The timestamps for the speedbands
+        tuple (start, end) samples: The range of samples to plot
     -----------------------------
     :returns:
         None
     '''
     fig, ax = plt.subplots()
-    ax.plot(actual[:,idx,ts], label="Actual")
-    ax.plot(predicted[:,idx,ts], label="Predicted")
+    timestamps = timestamps[samples[0]:samples[1],ts]
+    ax.plot(timestamps, actual[samples[0]:samples[1],idx,ts], label="Actual")
+    ax.plot(timestamps, predicted[samples[0]:samples[1],idx,ts], label="Predicted")
     ax.set_ylabel("Speedband")
     ax.set_xlabel("Timestep")
     ax.legend()
     ax.set_title("{} minutes".format((ts+1) * 5))
+    plt.gcf().autofmt_xdate()
     plt.show()
     
 def rmse_per_time(predicted, actual, timestamps, timeidx = 0):
@@ -93,10 +100,10 @@ def rmse_per_time(predicted, actual, timestamps, timeidx = 0):
         list (3-dimensions of samples, roads, output timesteps) predicted: The predicted speedbands
         list (3-dimensions of samples, roads, output timesteps) actual: The actual speedbands
         dict timestamps: Metadata linking index of timestamp to date string
-        int timeidx: Index of the period of time to be analysed. Date strings are of format DAYOFWEEK_MTH_DAY_YEAR_H_M_S, hence a timeidx of 0 means splitting by day, 4 means splitting by hour, etc.
+        int timeidx: Index of the period of time to be analysed. Date strings are of format DAYOFWEEK_MTH_DAY_YEAR_H:M:S, hence a timeidx of 0 means splitting by day, 4 means splitting by hour, etc.
     -----------------------------
     :returns:
-        dict: Dictionary of time period to RMSE
+        dict: Dictionary of (time period, output timestep) to RMSE
         dict: Dictionary of time period to how many times it is represented in the test set
     '''
     end = len(timestamps) - predicted.shape[2]
@@ -106,7 +113,7 @@ def rmse_per_time(predicted, actual, timestamps, timeidx = 0):
     for i in range(start, end + 1):
         idx = i - start
         for j in range(predicted.shape[2]):
-            date_time = timestamps[str(i+j)]
+            date_time = timestamps[str(i+j)].replace(":", "_")
             time = date_time.split("_")[timeidx]
             if time not in timecounts:
                 timecounts[time] = 0

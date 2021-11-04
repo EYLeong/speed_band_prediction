@@ -46,11 +46,17 @@ def processed(files_dir, process_dir, overwrite=False):
     A, metadata, cat2index = get_adjacency(file_paths[0])
     
     X = []
+    timestamps = {}
     
-    for data_file_path in tqdm(file_paths):
-        features = get_features(data_file_path, metadata, cat2index)
+    for i, data_file_path in enumerate(tqdm(file_paths)):
         
+        # Extract featuers
+        features = get_features(data_file_path, metadata, cat2index)
         X.append(features)
+        
+        # Generate timestamps
+        fileparts = PurePath(data_file_path).parts
+        timestamps[i] = fileparts[-2] + "_" + fileparts[-1].split(".")[0]
         
     X = np.transpose(X, (1,2,0)) # (num_vertices, num_features, num_timesteps)
 
@@ -65,16 +71,8 @@ def processed(files_dir, process_dir, overwrite=False):
     with open(cat2index_path, 'w') as outfile:
         json.dump(cat2index, outfile, sort_keys=True, indent=4)
         
-    timestamps = {}
-    # Generate json with timestamps
-    for i, v in enumerate(file_paths):
-        fileparts = PurePath(v).parts
-        timestamps[i] = fileparts[-2] + "_" + fileparts[-1].split(".")[0]
-        
     with open(timestamps_path, 'w') as outfile:
         json.dump(timestamps, outfile, sort_keys=True, indent=4)
-    
-    print("Done")
 
 def load(process_dir):
     '''
@@ -278,7 +276,7 @@ def get_features(file_path, metadata, cat2index):
     # 4. Hour
     
     parts = Path(file_path).parts
-    hour = parts[-1].split("_")[0]
+    hour = parts[-1].split(":")[0]
     day = parts[-2].split("_")[0]
     day2int = {
         "Mon":1,
@@ -309,7 +307,7 @@ def get_dates(dir_name):
 
 # sorted(os.listdir(raw_trunc_dir), key=get_dates)
 def get_day_time(file_name):
-    date_str_format = "%H_%M_%S"
+    date_str_format = "%H:%M:%S"
     my_date = datetime.strptime(file_name, date_str_format)
     return my_date
 
@@ -331,7 +329,7 @@ def get_ordered_file_path(dir_path):
 
 # Converts the full timestamp into a datetime object
 def timestamp_to_datetime(timestamp):
-    return datetime.strptime(timestamp, "%a_%b_%d_%Y_%H_%M_%S")
+    return datetime.strptime(timestamp, "%a_%b_%d_%Y_%H:%M:%S")
 
 # Checks whether two timestamps are within some delta minutes of each other
 def is_consecutive(t1, t2, delta):
@@ -352,7 +350,7 @@ def find_consecutive_chunks(timestamps, delta):
                 chunk.append(i)
             else:
                 chunks.append(chunk)
-                chunk = []
+                chunk = [i]
     if len(chunk) != 0:
         chunks.append(chunk)
     return chunks
@@ -387,12 +385,6 @@ def sub_chunk(chunk, proportions):
     if len(sub_chunk) != 0:
         sub_chunks.append(sub_chunk)
     return sub_chunks
-
-# Extract the relevant samples based on the given indices
-def extract_chunk(X, indices):
-    start = indices[0]
-    end = indices[-1]+1
-    return X[:,:,indices]
 
 # Plots the distribution of the given features across the given samples
 def distribution(X, indices):

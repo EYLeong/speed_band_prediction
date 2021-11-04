@@ -50,7 +50,7 @@ def filename_to_time(filename):
         date: Python date representation of the filename
     '''
     time_string = filename.split(".")[0]
-    date_time = datetime.strptime(time_string, "%H_%M_%S")
+    date_time = datetime.strptime(time_string, "%H:%M:%S")
     return date_time
         
 def get_speedbands(daypath, link_id):
