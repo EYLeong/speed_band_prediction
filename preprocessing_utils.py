@@ -11,6 +11,123 @@ from pathlib import Path, PurePath
 from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt
 
+def processed_large(files_dir, process_dir, overwrite=False):
+    '''
+    Process traffic data in json file and save them in numpy arrays
+    If overwrite=False, do not process the data if the processed files already exist
+    -----------------------------
+    :param str files_dir: the directory of the raw dataset
+           str process_dir: the directory of the processed output
+    -----------------------------
+    :returns: None
+    '''
+    process_dir = Path(process_dir)
+    (process_dir / "dataset").mkdir(parents=True, exist_ok=True)
+    
+    # check if files are already processed
+    adj_path = process_dir / "adj.npy"
+    metadata_path = process_dir / "metadata.json"
+    cat2index_path = process_dir / "cat2index.json"
+    timestamps_path = process_dir / "timestamps.json"
+    
+    if (not overwrite
+            and os.path.isfile(adj_path)
+            and os.path.isfile(metadata_path)
+            and os.path.isfile(cat2index_path)
+            and os.path.isfile(timestamps_path)
+       ):
+        # do not run the function if both overwrite is false and processed files already exist
+        return
+    
+    file_paths = get_ordered_file_path(files_dir)
+    
+    A, metadata, cat2index = get_adjacency(file_paths[0])
+    
+    timestamps = {}
+    
+    for i, data_file_path in enumerate(tqdm(file_paths)):
+        
+        # Extract featuers
+        features = get_features(data_file_path, metadata, cat2index)
+        features = features.astype(np.float32)
+        npy_path = process_dir / "dataset" / (str(i)+".npy")
+        np.save(npy_path, features)
+        
+        # Generate timestamps
+        fileparts = PurePath(data_file_path).parts
+        timestamps[i] = fileparts[-2] + "_" + fileparts[-1].split(".")[0]
+        
+    # save adjacency
+    np.save(adj_path, A)
+    
+    # save metadata
+    with open(metadata_path, 'w') as outfile:
+        json.dump(metadata, outfile, sort_keys=True, indent=4)
+    
+    with open(cat2index_path, 'w') as outfile:
+        json.dump(cat2index, outfile, sort_keys=True, indent=4)
+        
+    with open(timestamps_path, 'w') as outfile:
+        json.dump(timestamps, outfile, sort_keys=True, indent=4)
+        
+def mean_std(dataset_dir, idxs):
+    dataset_dir = Path(dataset_dir)
+    sample = np.load(dataset_dir / "{}.npy".format(idxs[0]))
+    means = np.zeros(sample.shape[1])
+    stds = np.zeros(sample.shape[1])
+    count = 0
+    for i in tqdm(idxs):
+        data = np.load(dataset_dir / "{}.npy".format(i))
+        for features in data:
+            count += 1
+            for j in range(len(features)):
+                new_mean = means[j] + (features[j] - means[j]) / count
+                new_std = stds[j] + (features[j] - means[j]) * (features[j] - new_mean)
+                means[j] = new_mean
+                stds[j] = new_std
+    stds = (stds / count) ** 0.5
+    return means, stds
+
+def load_metadata(process_dir):
+    process_dir = Path(process_dir)
+    
+    adj_path = process_dir / "adj.npy"
+    metadata_path = process_dir / "metadata.json"
+    cat2index_path = process_dir / "cat2index.json"
+    timestamps_path = process_dir / "timestamps.json"
+    
+    A = np.load(adj_path)
+    with open(metadata_path) as json_file:
+        metadata = json.load(json_file)
+    with open(cat2index_path) as json_file:
+        cat2index = json.load(json_file)
+    with open(timestamps_path) as json_file:
+        timestamps = json.load(json_file)
+    return A, metadata, cat2index, timestamps
+
+def generate_samples(idxs, num_timesteps_input, num_timesteps_output, dir_path, features_dir):
+    dir_path = Path(dir_path)
+    features_dir = Path(features_dir)
+    (dir_path / "inputs").mkdir(parents=True, exist_ok=True)
+    (dir_path / "targets").mkdir(parents=True, exist_ok=True)
+    count = 0
+    for chunk in tqdm(idxs):
+        for i in tqdm(range(len(chunk) - num_timesteps_input - num_timesteps_output + 1)):
+            sample = []
+            target = []
+            for j in range(num_timesteps_input + num_timesteps_output):
+                data = np.load(features_dir / "{}.npy".format(chunk[i+j]))
+                if j < num_timesteps_input:
+                    sample.append(data)
+                else:
+                    target.append(data[:,0])
+            sample = np.array(sample)
+            target = np.array(target)
+            np.save(dir_path / "inputs" / "{}.npy".format(count), sample)
+            np.save(dir_path / "targets" / "{}.npy".format(count), target)
+            count += 1
+            
+            
 def processed(files_dir, process_dir, overwrite=False):
     '''
     Process traffic data in json file and save them in numpy array
