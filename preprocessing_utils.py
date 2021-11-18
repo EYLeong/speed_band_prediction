@@ -22,7 +22,7 @@ def processed_large(files_dir, process_dir, overwrite=False):
     :returns: None
     '''
     process_dir = Path(process_dir)
-    (process_dir / "dataset").mkdir(parents=True, exist_ok=True)
+    (process_dir / "features").mkdir(parents=True, exist_ok=True)
     
     # check if files are already processed
     adj_path = process_dir / "adj.npy"
@@ -50,7 +50,7 @@ def processed_large(files_dir, process_dir, overwrite=False):
         # Extract featuers
         features = get_features(data_file_path, metadata, cat2index)
         features = features.astype(np.float32)
-        npy_path = process_dir / "dataset" / (str(i)+".npy")
+        npy_path = process_dir / "features" / (str(i)+".npy")
         np.save(npy_path, features)
         
         # Generate timestamps
@@ -105,27 +105,41 @@ def load_metadata(process_dir):
         timestamps = json.load(json_file)
     return A, metadata, cat2index, timestamps
 
-def generate_samples(idxs, num_timesteps_input, num_timesteps_output, dir_path, features_dir):
+def generate_samples(idxs, num_timesteps_input, num_timesteps_output, dir_path, features_dir, timestamps):
     dir_path = Path(dir_path)
     features_dir = Path(features_dir)
     (dir_path / "inputs").mkdir(parents=True, exist_ok=True)
     (dir_path / "targets").mkdir(parents=True, exist_ok=True)
     count = 0
+    input_timestamps = []
+    output_timestamps = []
     for chunk in tqdm(idxs):
         for i in tqdm(range(len(chunk) - num_timesteps_input - num_timesteps_output + 1)):
             sample = []
             target = []
+            sample_input_timestamps = []
+            sample_output_timestamps = []
             for j in range(num_timesteps_input + num_timesteps_output):
                 data = np.load(features_dir / "{}.npy".format(chunk[i+j]))
+                key = str(chunk[i+j])
+                timestamp = datetime.strptime(timestamps[key], "%a_%b_%d_%Y_%H:%M:%S")
                 if j < num_timesteps_input:
                     sample.append(data)
+                    sample_input_timestamps.append(timestamp)
                 else:
                     target.append(data[:,0])
+                    sample_output_timestamps.append(timestamp)
             sample = np.array(sample)
             target = np.array(target)
             np.save(dir_path / "inputs" / "{}.npy".format(count), sample)
             np.save(dir_path / "targets" / "{}.npy".format(count), target)
+            input_timestamps.append(sample_input_timestamps)
+            output_timestamps.append(sample_output_timestamps)
             count += 1
+    input_timestamps = np.array(input_timestamps)
+    output_timestamps = np.array(output_timestamps)
+    np.save(dir_path / "input_timestamps.npy", input_timestamps)
+    np.save(dir_path / "output_timestamps.npy", output_timestamps)
             
             
 def processed(files_dir, process_dir, overwrite=False):
