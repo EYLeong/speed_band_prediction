@@ -69,20 +69,44 @@ def train(adj_mat, train_loader, val_loader, model, optimizer, criterion, patien
     plt.legend()
     plt.show()
     
-def predict(adj_mat, dataloader, model, means, stds, device):
+def predict(adj_mat, dataloader, model, means, stds, device, repeated = False):
+    model.to(device)
     preds = torch.empty((0, dataloader.dataset.num_nodes, dataloader.dataset.num_timesteps_output))
     actuals = torch.empty((0, dataloader.dataset.num_nodes, dataloader.dataset.num_timesteps_output))
     with torch.no_grad():
         model.eval()
         for batch_input, actual in tqdm(dataloader):
-            batch_input = batch_input.to(device)
             actual = actual.cpu()
             actual = actual * stds[0] + means[0]
             actuals = torch.cat((actuals, actual))
-            pred = model(adj_mat, batch_input).cpu()
+            if repeated:
+                pred = predict_repeated(adj_mat, batch_input, dataloader.dataset.num_timesteps_output, model, means, stds, device)
+            else:
+                pred = model(adj_mat, batch_input.to(device)).cpu()
             pred = pred * stds[0] + means[0]
             preds = torch.cat((preds, pred))
         return preds, actuals
+    
+def predict_repeated(adj_mat, batch_input, num_timesteps_output, model, means, stds, device):
+    preds = torch.empty(batch_input.shape[0], batch_input.shape[1], 0) # final predictions
+    for i in range(num_timesteps_output):
+        pred = model(adj_mat, batch_input.to(device)).cpu()
+        preds = torch.cat((preds, pred), 2)
+        pred = torch.unsqueeze(pred, pred.dim())
+        pred = torch.cat((pred, batch_input[:,:,0:1,1:]), pred.dim()-1) # adding missing features of output from input
+        pred = pred * stds + means
+        for i in range(pred.shape[0]): # adjusting the time features
+            day = pred[i,0,0,3].item()
+            hour = pred[i,0,0,4].item() + 1
+            if hour == 25: # next day
+                day += 1
+                hour = 0
+            pred[i,:,:,3] = day
+            pred[i,:,:,4] = hour
+        pred = (pred - means) / stds
+        batch_input = torch.cat((batch_input, pred), 2)
+        batch_input = batch_input[:,:,1:,:]
+    return preds
     
 def save_model(model, model_path):
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)

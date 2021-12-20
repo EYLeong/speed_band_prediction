@@ -11,7 +11,7 @@ from pathlib import Path, PurePath
 from tqdm.notebook import tqdm
 import matplotlib.pyplot as plt
 
-def processed_large(files_dir, process_dir, overwrite=False):
+def process(files_dir, process_dir, overwrite=False):
     '''
     Process traffic data in json file and save them in numpy arrays
     If overwrite=False, do not process the data if the processed files already exist
@@ -141,120 +141,6 @@ def generate_samples(idxs, num_timesteps_input, num_timesteps_output, dir_path, 
     np.save(dir_path / "input_timestamps.npy", input_timestamps)
     np.save(dir_path / "output_timestamps.npy", output_timestamps)
             
-            
-def processed(files_dir, process_dir, overwrite=False):
-    '''
-    Process traffic data in json file and save them in numpy array
-    If overwrite=False, do not process the data if the processed files already exist
-    -----------------------------
-    :param str files_dir: the directory of the raw dataset
-           str process_dir: the directory of the processed output
-    -----------------------------
-    :returns: None
-    '''
-    Path(process_dir).mkdir(parents=True, exist_ok=True)
-    
-    # check if files are already processed
-    dataset_path = os.path.join(process_dir, "dataset.npy")
-    adj_path = os.path.join(process_dir, "adj.npy")
-    metadata_path = os.path.join(process_dir, "metadata.json")
-    cat2index_path = os.path.join(process_dir, "cat2index.json")
-    timestamps_path = os.path.join(process_dir, "timestamps.json")
-    
-    if (not overwrite and
-            (os.path.isfile(dataset_path)
-            and os.path.isfile(adj_path)
-            and os.path.isfile(metadata_path)
-            and os.path.isfile(cat2index_path)
-            and os.path.isfile(timestamps_path)
-            )
-       ):
-        # do not run the function if both overwrite is false and all processed files already exist
-        return
-    
-    file_paths = get_ordered_file_path(files_dir)
-    
-    A, metadata, cat2index = get_adjacency(file_paths[0])
-    
-    X = []
-    timestamps = {}
-    
-    for i, data_file_path in enumerate(tqdm(file_paths)):
-        
-        # Extract featuers
-        features = get_features(data_file_path, metadata, cat2index)
-        X.append(features)
-        
-        # Generate timestamps
-        fileparts = PurePath(data_file_path).parts
-        timestamps[i] = fileparts[-2] + "_" + fileparts[-1].split(".")[0]
-        
-    X = np.transpose(X, (1,2,0)) # (num_vertices, num_features, num_timesteps)
-
-    # save both
-    np.save(dataset_path, X)
-    np.save(adj_path, A)
-    
-    # save metadata
-    with open(metadata_path, 'w') as outfile:
-        json.dump(metadata, outfile, sort_keys=True, indent=4)
-    
-    with open(cat2index_path, 'w') as outfile:
-        json.dump(cat2index, outfile, sort_keys=True, indent=4)
-        
-    with open(timestamps_path, 'w') as outfile:
-        json.dump(timestamps, outfile, sort_keys=True, indent=4)
-
-def load(process_dir):
-    '''
-    Load datasets and adjacency matrixs from numpy file. Also calculates the means and stds
-    -----------------------------
-    :param str process_dir:  the directory of the processed output
-    -----------------------------
-    :returns: 
-        npy: Adjacency matrix
-        npy: Feature matrix
-        dict: Metadata
-        dict: cat2index
-        dict: timestamps
-        npy: means 
-        npy: stds
-    '''
-    dataset_path = os.path.join(process_dir, "dataset.npy")
-    adj_path = os.path.join(process_dir, "adj.npy")
-    metadata_path = os.path.join(process_dir, "metadata.json")
-    cat2index_path = os.path.join(process_dir, "cat2index.json")
-    timestamps_path = os.path.join(process_dir, "timestamps.json")
-
-    A = np.load(adj_path)
-    X = np.load(dataset_path)
-    X = X.astype(np.float32)
-
-    with open(metadata_path) as json_file:
-        metadata = json.load(json_file)
-        
-    with open(cat2index_path) as json_file:
-        cat2index = json.load(json_file)
-        
-    with open(timestamps_path) as json_file:
-        timestamps = json.load(json_file)
-        
-    # Normalization using Z-score method
-    means = np.mean(X, axis=(0, 2))
-    X = X - means.reshape(1, -1, 1)
-    stds = np.std(X, axis=(0, 2))
-    X = X / stds.reshape(1, -1, 1)
-
-    return A, X, metadata, cat2index, timestamps, means, stds
-
-def denormalize(X, stds, means, rounding=False):
-    """
-    rounding = nearest integer
-    Returns the denormalize data
-    """
-    result = X * stds.reshape(1, -1, 1) + means.reshape(1, -1, 1)
-    return np.round(result) if rounding else result
-
 def get_normalized_adj(A):
     """
     Returns the degree normalized adjacency matrix.
@@ -266,36 +152,6 @@ def get_normalized_adj(A):
     A_wave = np.multiply(np.multiply(diag.reshape((-1, 1)), A),
                          diag.reshape((1, -1)))
     return A_wave
-
-def generate_dataset(X, num_timesteps_input, num_timesteps_output):
-    """
-    Takes node features for the graph and divides them into multiple samples
-    along the time-axis by sliding a window of size (num_timesteps_input+
-    num_timesteps_output) across it in steps of 1.
-    :param X: Node features of shape (num_vertices, num_features,
-    num_timesteps)
-    :return:
-        - Node features divided into multiple samples. Shape is
-          (num_samples, num_vertices, num_features, num_timesteps_input).
-        - Node targets for the samples. Shape is
-          (num_samples, num_vertices, num_features, num_timesteps_output).
-    """
-    # Generate the beginning index and the ending index of a sample, which
-    # contains (num_points_for_training + num_points_for_predicting) points
-    indices = [(i, i + (num_timesteps_input + num_timesteps_output)) for i
-               in range(X.shape[2] - (
-                num_timesteps_input + num_timesteps_output) + 1)]
-
-    # Save samples
-    features, target = [], []
-    for i, j in indices:
-        features.append(
-            X[:, :, i: i + num_timesteps_input].transpose(
-                (0, 2, 1)))
-        target.append(X[:, 0, i + num_timesteps_input: j])
-
-    return torch.from_numpy(np.array(features)), \
-           torch.from_numpy(np.array(target))
 
 def get_adjacency(file_path):
     '''
