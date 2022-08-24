@@ -44,7 +44,7 @@ def filename_to_time(filename):
     Convert the filename into a python date object
     -----------------------------
     :params:
-        string filename: Filename of format %H_%M_%S
+        string filename: Filename of format %H:%M:%S
     -----------------------------
     :returns:
         date: Python date representation of the filename
@@ -146,6 +146,7 @@ CATEGORIES = {
     "D":("Minor Arterial Road", "tab:green"),
     "E":("Small Road", "tab:olive"),
     "F":("Slip Road", "tab:purple"),
+    "G":("Other", "tab:brown"),
 }
 
 def plot_map(filepath, links=[]):
@@ -182,3 +183,70 @@ def plot_map(filepath, links=[]):
     ax.legend()
     ctx.add_basemap(ax)
     plt.show()
+
+def get_avg_speedband(filepath):
+    '''
+    Retrieve the average speedband from a specific json file of all roads
+    -----------------------------
+    :params:
+        Path/string filepath: Path of the file to be opened
+    -----------------------------
+    :returns:
+        float: Average speedband
+    '''
+    jjson = load_json(filepath)
+    total = 0
+    count = 0
+    for link in jjson:
+        total += link["SpeedBand"]
+        count += 1
+    return total/count
+
+def get_avg_speedbands(daypath):
+    '''
+    Retrieve all the timestamps and corresponding average speedbands for all roads on a specific day
+    -----------------------------
+    :params:
+        Path daypath: Path object of the directory where all json files for that day are stored
+    -----------------------------
+    :returns:
+        list: List of all timestamps as date objects
+        list: List of all average speedbands
+    '''
+    file_list = os.listdir(daypath)
+    file_list.sort()
+    time_list = []
+    speedband_list = []
+    for file in file_list:
+        time = filename_to_time(file)
+        time_list.append(time)
+        speedband = get_avg_speedband(daypath/file)
+        speedband_list.append(speedband)
+    return time_list, speedband_list
+
+def get_all_avg_speedbands(datadir, days):
+    '''
+    Returns the average speedband across all roads by the hour for all of the days specified.
+    -----------------------------
+    :params:
+        Path datadir: Path object of the data directory
+        list days: List of the days to include in the average
+    -----------------------------
+    :returns:
+        dict: Dictionary of hour -> average speedband across all roads for selected days
+    '''
+    datelist = os.listdir(datadir)
+    datelist = [date for date in datelist if date.split("_")[0] in days]
+    average_speedbands = {}
+    average_speedbands_counts = {}
+    for date in datelist:
+        times, speedbands = get_avg_speedbands(datadir/date)
+        for i in range(len(times)):
+            if times[i].hour not in average_speedbands:
+                average_speedbands[times[i].hour] = 0
+                average_speedbands_counts[times[i].hour] = 0
+            average_speedbands[times[i].hour] += speedbands[i]
+            average_speedbands_counts[times[i].hour] += 1
+    for k, v in average_speedbands.items():
+        average_speedbands[k] = v/average_speedbands_counts[k]
+    return average_speedbands

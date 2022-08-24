@@ -1,3 +1,5 @@
+# This file was taken entirely from https://github.com/FelixOpolka/STGCN-PyTorch
+
 import math
 import torch
 import torch.nn as nn
